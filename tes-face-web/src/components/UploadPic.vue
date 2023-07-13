@@ -51,6 +51,7 @@ export default {
         headers: {'Content-Type': 'multipart/form-data'},
         responseType: 'blob'
       }).then(res => {
+        this.showOverlay = false; // 在上传成功后隐藏遮罩
         let filename = res.headers['content-disposition'].split(';')[1].split('filename=')[1];
         var blob = new Blob([res.data]),
             Temp = document.createElement('a');
@@ -60,7 +61,7 @@ export default {
         Temp.click();
         document.body.removeChild(Temp);
         window.URL.revokeObjectURL(Temp);
-        this.showOverlay = false; // 在上传成功后隐藏遮罩
+
       })
     },
   }
