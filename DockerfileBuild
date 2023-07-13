@@ -1,0 +1,18 @@
+FROM needkk/tes-face-base:latest
+
+
+WORKDIR /go/src/tes-face
+COPY . .
+
+ENV TZ=Asia/Shanghai
+
+EXPOSE 9999
+
+RUN go env -w GOPROXY=https://goproxy.cn,direct
+RUN go mod tidy
+RUN GOOS=linux GOARCH=amd64 go build -o tes-face .
+
+CMD ["/bin/bash","-c","./tes-face"]
+
+
+
