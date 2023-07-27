@@ -3,7 +3,9 @@ package handleface
 import (
 	"errors"
 	"fmt"
+	"github.com/disintegration/imaging"
 	"github.com/nfnt/resize"
+	"github.com/rwcarlsen/goexif/exif"
 	"go.uber.org/zap"
 	"gocv.io/x/gocv"
 	"image"
@@ -40,20 +42,20 @@ func HandlePic(imageFilePath, origin string) (string, string, error) {
 
 	if !classifier.Load("haarcascade_frontalface_default.xml") {
 		fmt.Println("Error reading cascade file")
-		return "", "", errors.New("Error reading cascade file")
+		return "", "", errors.New("读取模型文件失败")
 	}
 	fmt.Println("Recognizer Initialized")
 	// Read the image you want to analyze.
 	img := gocv.IMRead(imageFilePath, gocv.IMReadColor)
 	if img.Empty() {
-		fmt.Println("Error reading image")
-		return "", "", errors.New("Error reading image")
+		fmt.Println("读取图片失败")
+		return "", "", errors.New("读取图片失败")
 	}
 	defer img.Close()
 
 	// Detect faces in the image.
 	rects := classifier.DetectMultiScale(img)
-	fmt.Printf("Found %d faces\n", len(rects))
+	fmt.Printf("识别特征人脸 %d \n", len(rects))
 	if len(rects) == 0 {
 		return imageFilePath, origin, nil
 	}
@@ -70,6 +72,29 @@ func HandlePic(imageFilePath, origin string) (string, string, error) {
 			watermark, _ = jpeg.Decode(wmb)
 		}
 		defer wmb.Close()
+		// 使用 goexif/exif 包读取图像的 EXIF 元数据
+		exifData, err := exif.Decode(wmb)
+		if err != nil {
+			fmt.Println("无法读取图片的EXIF元数据:", err)
+			return "", "", errors.New("无法读取图片的EXIF元数据")
+		}
+
+		// 获取方向信息
+		orientation, err := exifData.Get(exif.Orientation)
+		if err == nil {
+			// 如果方向信息存在，进行校正
+			if orientation.String() != "1" {
+				// 进行图像校正
+				switch orientation.String() {
+				case "3":
+					watermark = imaging.Rotate180(watermark)
+				case "6":
+					watermark = imaging.Rotate270(watermark)
+				case "8":
+					watermark = imaging.Rotate90(watermark)
+				}
+			}
+		}
 		b := watermark.Bounds()
 		m := image.NewNRGBA(b)
 		draw.Draw(m, b, watermark, image.ZP, draw.Src)
