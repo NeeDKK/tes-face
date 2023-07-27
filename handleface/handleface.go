@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	face "github.com/Kagami/go-face"
+	"github.com/esimov/stackblur-go"
 	"github.com/nfnt/resize"
 	"go.uber.org/zap"
 	"gocv.io/x/gocv"
@@ -56,31 +57,26 @@ func HandlePic(imageFilePath, origin string) (string, string, error) {
 	}
 	for _, f := range faces {
 		//马赛克图片
-		//open, err := os.Open(imageFilePath)
-		//decode, _ := jpeg.Decode(open)
-		//process, err := stackblur.Process(decode, 100)
-		//if err != nil {
-		//	return "", "", err
-		//}
-		//create, err := os.Create(masakePath)
-		//jpeg.Encode(create, process, nil)
-		//in, _ := os.Open(masakePath)
-		//out, _ := os.Create("./out.jpg")
-		//err = Clip(in, out, 0, 0, f.Rectangle.Max.X, f.Rectangle.Max.Y, f.Rectangle.Min.X, f.Rectangle.Min.Y, 100)
-		//
-		//imgb, _ := os.Open("./out.jpg")
-		//img, _ := jpeg.Decode(imgb)
+		open, err := os.Open(imageFilePath)
+		decode, _ := jpeg.Decode(open)
+		process, err := stackblur.Process(decode, 100)
+		if err != nil {
+			return "", "", err
+		}
+		create, err := os.Create(masakePath)
+		jpeg.Encode(create, process, nil)
+		in, _ := os.Open(masakePath)
+		out, _ := os.Create("./out.jpg")
+		err = Clip(in, out, 0, 0, f.Rectangle.Max.X, f.Rectangle.Max.Y, f.Rectangle.Min.X, f.Rectangle.Min.Y, 100)
 
-		//defer out.Close()
-		//defer open.Close()
-		//defer create.Close()
-		//defer imgb.Close()
-		//defer in.Close()
+		imgb, _ := os.Open("./out.jpg")
+		img, _ := jpeg.Decode(imgb)
 
-		imgb, _ := os.Open(masakePath)
-		img, _ := png.Decode(imgb)
+		defer out.Close()
+		defer open.Close()
+		defer create.Close()
 		defer imgb.Close()
-
+		defer in.Close()
 		//目标图片
 		wmb, _ := os.Open(imageFilePath)
 		var watermark image.Image
@@ -231,7 +227,6 @@ func HandleVideo(videoFile, origin string) (string, string, error) {
 		for _, r := range rects {
 			// 提取人脸区域
 			faceRegion := frame.Region(r)
-
 			// 调整马赛克图像大小为人脸区域大小
 			resizedMosaic := gocv.NewMatWithSize(faceRegion.Rows(), faceRegion.Cols(), mosaicImage.Type())
 			gocv.Resize(mosaicImage, &resizedMosaic, image.Point{X: faceRegion.Cols(), Y: faceRegion.Rows()}, 0, 0, gocv.InterpolationDefault)
@@ -243,7 +238,6 @@ func HandleVideo(videoFile, origin string) (string, string, error) {
 			resizedMosaic.Close()
 			faceRegion.Close()
 		}
-
 		// 写入带有自定义马赛克的视频帧到输出文件
 		output.Write(frame)
 
