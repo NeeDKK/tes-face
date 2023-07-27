@@ -192,12 +192,12 @@ func HandleVideo(videoFile, origin string) (string, string, error) {
 
 	// 加载自定义的马赛克图片
 	mosaicImageFile := masakePath
-	mosaicImage := gocv.IMRead(mosaicImageFile, gocv.IMReadColor)
+	overlayImg := gocv.IMRead(mosaicImageFile, gocv.IMReadColor)
 	if err != nil {
 		fmt.Println(err)
 		return videoFile, origin, err
 	}
-	defer mosaicImage.Close()
+	defer overlayImg.Close()
 
 	// 循环读取视频帧并进行处理
 	frame := gocv.NewMat()
@@ -213,28 +213,36 @@ func HandleVideo(videoFile, origin string) (string, string, error) {
 
 		// 在当前帧中检测人脸
 		rects := classifier.DetectMultiScale(frame)
-		for _, r := range rects {
+		for _, f := range rects {
 			// 提取人脸区域
-			faceRegion := frame.Region(r)
-
-			// 调整马赛克图像大小为人脸区域大小
-			resizedMosaic := gocv.NewMatWithSize(faceRegion.Rows(), faceRegion.Cols(), mosaicImage.Type())
-			gocv.Resize(mosaicImage, &resizedMosaic, image.Point{X: faceRegion.Cols(), Y: faceRegion.Rows()}, 0, 0, gocv.InterpolationDefault)
-
-			// 将调整后的马赛克图像应用到人脸区域
-			alpha := 1.0 // 透明度系数，范围为[0.0, 1.0]
-			gocv.AddWeighted(faceRegion, alpha, resizedMosaic, 1.0-alpha, 0.0, &faceRegion)
-
+			faceRegion := frame.Region(f)
+			// 确定将图片覆盖的位置（这里示例为在人脸的左上角）
+			posX := f.Min.X
+			posY := f.Min.Y
+			overlayWidth := f.Max.X - f.Min.X
+			overlayHeight := f.Max.Y - f.Min.Y
+			// 确保裁剪区域不超过overlayImg的大小
+			if overlayWidth > overlayImg.Cols() {
+				overlayWidth = overlayImg.Cols()
+			}
+			if overlayHeight > overlayImg.Rows() {
+				overlayHeight = overlayImg.Rows()
+			}
+			// 获取裁剪后的覆盖图片
+			overlayCropped := overlayImg.Region(image.Rect(0, 0, overlayWidth, overlayHeight))
+			// 获取原始图像中指定位置的区域
+			targetRegion := frame.Region(image.Rect(posX, posY, posX+overlayWidth, posY+overlayHeight))
+			// 将裁剪后的覆盖图片覆盖在原始图像的指定位置
+			overlayCropped.CopyTo(&targetRegion)
+			// 绘制人脸边界框
+			gocv.Rectangle(&frame, f, color.RGBA{0, 255, 0, 0}, 2)
 			// 释放资源
-			resizedMosaic.Close()
 			faceRegion.Close()
 		}
-
 		// 写入带有自定义马赛克的视频帧到输出文件
 		output.Write(frame)
 
 	}
-
 	// 视频输出结束
 	fmt.Println("视频输出完成")
 	return outputFile, filename, nil
