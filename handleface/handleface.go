@@ -3,7 +3,6 @@ package handleface
 import (
 	"errors"
 	"fmt"
-	face "github.com/Kagami/go-face"
 	"github.com/nfnt/resize"
 	"go.uber.org/zap"
 	"gocv.io/x/gocv"
@@ -36,51 +35,32 @@ func HandlePic(imageFilePath, origin string) (string, string, error) {
 	// 拼接新文件名
 	filename := name + "_" + time.Now().Format("20060102150405") + ext
 	path := config.FILEPATH.GeneratePath + "/images/" + filename
-	// 初始化识别器
-	rec, err := face.NewRecognizer(modelDir)
-	if err != nil {
-		fmt.Println("Cannot INItialize recognizer")
+	classifier := gocv.NewCascadeClassifier()
+	defer classifier.Close()
+
+	if !classifier.Load("haarcascade_frontalface_default.xml") {
+		fmt.Println("Error reading cascade file")
+		return "", "", errors.New("Error reading cascade file")
 	}
-	defer rec.Close()
 	fmt.Println("Recognizer Initialized")
-	// 调用该方法，传入路径。返回面部数量和任何错误
-	faces, err := rec.RecognizeFile(imageFilePath)
-	if err != nil {
-		fmt.Println("无法识别: %v", err)
-		return "", "", errors.New("picture recoginzation fail, err:" + err.Error())
+	// Read the image you want to analyze.
+	img := gocv.IMRead(imageFilePath, gocv.IMReadColor)
+	if img.Empty() {
+		fmt.Println("Error reading image")
+		return "", "", errors.New("Error reading image")
 	}
-	// 打印人脸数量
-	fmt.Println("图片人脸数量: ", len(faces))
-	if len(faces) == 0 {
+	defer img.Close()
+
+	// Detect faces in the image.
+	rects := classifier.DetectMultiScale(img)
+	fmt.Printf("Found %d faces\n", len(rects))
+	if len(rects) == 0 {
 		return imageFilePath, origin, nil
 	}
-	for _, f := range faces {
-		//马赛克图片
-		//open, err := os.Open(imageFilePath)
-		//decode, _ := jpeg.Decode(open)
-		//process, err := stackblur.Process(decode, 100)
-		//if err != nil {
-		//	return "", "", err
-		//}
-		//create, err := os.Create(masakePath)
-		//jpeg.Encode(create, process, nil)
-		//in, _ := os.Open(masakePath)
-		//out, _ := os.Create("./out.jpg")
-		//err = Clip(in, out, 0, 0, f.Rectangle.Max.X, f.Rectangle.Max.Y, f.Rectangle.Min.X, f.Rectangle.Min.Y, 100)
-		//
-		//imgb, _ := os.Open("./out.jpg")
-		//img, _ := jpeg.Decode(imgb)
-
-		//defer out.Close()
-		//defer open.Close()
-		//defer create.Close()
-		//defer imgb.Close()
-		//defer in.Close()
-
+	for _, f := range rects {
 		imgb, _ := os.Open(masakePath)
 		img, _ := png.Decode(imgb)
 		defer imgb.Close()
-
 		//目标图片
 		wmb, _ := os.Open(imageFilePath)
 		var watermark image.Image
@@ -92,10 +72,8 @@ func HandlePic(imageFilePath, origin string) (string, string, error) {
 		defer wmb.Close()
 		b := watermark.Bounds()
 		m := image.NewNRGBA(b)
-
 		draw.Draw(m, b, watermark, image.ZP, draw.Src)
-		draw.Draw(m, f.Rectangle, img, image.ZP, draw.Over)
-
+		draw.Draw(m, f.Bounds(), img, image.ZP, draw.Over)
 		//new
 		mkdirErr := os.MkdirAll(config.FILEPATH.GeneratePath+"/images/", os.ModePerm)
 		if mkdirErr != nil {
