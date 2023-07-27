@@ -3,13 +3,11 @@ package handleface
 import (
 	"errors"
 	"fmt"
-	"github.com/disintegration/imaging"
 	"github.com/nfnt/resize"
-	"github.com/rwcarlsen/goexif/exif"
 	"go.uber.org/zap"
 	"gocv.io/x/gocv"
 	"image"
-	"image/draw"
+	"image/color"
 	"image/jpeg"
 	"image/png"
 	"io"
@@ -39,7 +37,6 @@ func HandlePic(imageFilePath, origin string) (string, string, error) {
 	path := config.FILEPATH.GeneratePath + "/images/" + filename
 	classifier := gocv.NewCascadeClassifier()
 	defer classifier.Close()
-
 	if !classifier.Load("haarcascade_frontalface_default.xml") {
 		fmt.Println("Error reading cascade file")
 		return "", "", errors.New("读取模型文件失败")
@@ -47,69 +44,48 @@ func HandlePic(imageFilePath, origin string) (string, string, error) {
 	fmt.Println("Recognizer Initialized")
 	// Read the image you want to analyze.
 	img := gocv.IMRead(imageFilePath, gocv.IMReadColor)
+
 	if img.Empty() {
 		fmt.Println("读取图片失败")
 		return "", "", errors.New("读取图片失败")
 	}
 	defer img.Close()
-
 	// Detect faces in the image.
 	rects := classifier.DetectMultiScale(img)
 	fmt.Printf("识别特征人脸 %d \n", len(rects))
 	if len(rects) == 0 {
 		return imageFilePath, origin, nil
 	}
+	// 加载你想要覆盖的图片并将其转换为gocv.Mat格式
+	overlayImg := gocv.IMRead(masakePath, gocv.IMReadColor)
 	for _, f := range rects {
-		imgb, _ := os.Open(masakePath)
-		img, _ := png.Decode(imgb)
-		defer imgb.Close()
-		//目标图片
-		wmb, _ := os.Open(imageFilePath)
-		var watermark image.Image
-		if strings.Contains(ext, "png") {
-			watermark, _ = png.Decode(wmb)
-		} else {
-			watermark, _ = jpeg.Decode(wmb)
+		// 确定将图片覆盖的位置（这里示例为在人脸的左上角）
+		posX := f.Min.X
+		posY := f.Min.Y
+		overlayWidth := f.Max.X - f.Min.X
+		overlayHeight := f.Max.Y - f.Min.Y
+
+		// 确保裁剪区域不超过overlayImg的大小
+		if overlayWidth > overlayImg.Cols() {
+			overlayWidth = overlayImg.Cols()
 		}
-		defer wmb.Close()
-		// 使用 goexif/exif 包读取图像的 EXIF 元数据
-		exifData, err := exif.Decode(wmb)
-		if err != nil {
-			fmt.Println("无法读取图片的EXIF元数据:", err)
-			return "", "", errors.New("无法读取图片的EXIF元数据")
+		if overlayHeight > overlayImg.Rows() {
+			overlayHeight = overlayImg.Rows()
 		}
 
-		// 获取方向信息
-		orientation, err := exifData.Get(exif.Orientation)
-		if err == nil {
-			// 如果方向信息存在，进行校正
-			if orientation.String() != "1" {
-				// 进行图像校正
-				switch orientation.String() {
-				case "3":
-					watermark = imaging.Rotate180(watermark)
-				case "6":
-					watermark = imaging.Rotate270(watermark)
-				case "8":
-					watermark = imaging.Rotate90(watermark)
-				}
-			}
-		}
-		b := watermark.Bounds()
-		m := image.NewNRGBA(b)
-		draw.Draw(m, b, watermark, image.ZP, draw.Src)
-		draw.Draw(m, f.Bounds(), img, image.ZP, draw.Over)
-		//new
-		mkdirErr := os.MkdirAll(config.FILEPATH.GeneratePath+"/images/", os.ModePerm)
-		if mkdirErr != nil {
-			config.TES_LOG.Error("function os.MkdirAll() Filed", zap.Any("err", mkdirErr.Error()))
-			return "", "", errors.New("function os.MkdirAll() Filed, err:" + mkdirErr.Error())
-		}
-		imgw, _ := os.Create(path)
-		jpeg.Encode(imgw, m, &jpeg.Options{100})
-		defer imgw.Close()
-		imageFilePath = path
+		// 获取裁剪后的覆盖图片
+		overlayCropped := overlayImg.Region(image.Rect(0, 0, overlayWidth, overlayHeight))
+
+		// 获取原始图像中指定位置的区域
+		targetRegion := img.Region(image.Rect(posX, posY, posX+overlayWidth, posY+overlayHeight))
+
+		// 将裁剪后的覆盖图片覆盖在原始图像的指定位置
+		overlayCropped.CopyTo(&targetRegion)
+
+		// 绘制人脸边界框
+		gocv.Rectangle(&img, f, color.RGBA{0, 255, 0, 0}, 2)
 	}
+	gocv.IMWrite(path, img)
 	return path, filename, nil
 }
 
@@ -238,9 +214,10 @@ func HandleVideo(videoFile, origin string) (string, string, error) {
 			// 调整马赛克图像大小为人脸区域大小
 			resizedMosaic := gocv.NewMatWithSize(faceRegion.Rows(), faceRegion.Cols(), mosaicImage.Type())
 			gocv.Resize(mosaicImage, &resizedMosaic, image.Point{X: faceRegion.Cols(), Y: faceRegion.Rows()}, 0, 0, gocv.InterpolationDefault)
-			resizedMosaic.ConvertTo(&resizedMosaic, faceRegion.Type())
+
 			// 将调整后的马赛克图像应用到人脸区域
-			gocv.AddWeighted(faceRegion, 0.0, resizedMosaic, 1.0, 0.0, &faceRegion)
+			alpha := 1.0 // 透明度系数，范围为[0.0, 1.0]
+			gocv.AddWeighted(faceRegion, alpha, resizedMosaic, 1.0-alpha, 0.0, &faceRegion)
 
 			// 释放资源
 			resizedMosaic.Close()
