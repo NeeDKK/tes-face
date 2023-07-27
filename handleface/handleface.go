@@ -85,6 +85,12 @@ func HandlePic(imageFilePath, origin string) (string, string, error) {
 		// 绘制人脸边界框
 		gocv.Rectangle(&img, f, color.RGBA{0, 255, 0, 0}, 2)
 	}
+	//new
+	mkdirErr := os.MkdirAll(config.FILEPATH.GeneratePath+"/images/", os.ModePerm)
+	if mkdirErr != nil {
+		config.TES_LOG.Error("function os.MkdirAll() Filed", zap.Any("err", mkdirErr.Error()))
+		return "", "", errors.New("function os.MkdirAll() Filed, err:" + mkdirErr.Error())
+	}
 	gocv.IMWrite(path, img)
 	return path, filename, nil
 }
