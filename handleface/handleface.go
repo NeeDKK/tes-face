@@ -199,6 +199,24 @@ func HandleVideo(videoFile, origin string) (string, string, error) {
 	}
 	defer overlayImg.Close()
 
+	// Create channel to handle processed frames
+	frameChan := make(chan gocv.Mat)
+
+	// Start goroutine to process frames
+	go processFrames(video, &classifier, overlayImg, frameChan)
+
+	// Wait for the processing to finish and check for errors
+	for frame := range frameChan {
+		// Write processed frames to the output video
+		output.Write(frame)
+	}
+
+	// 视频输出结束
+	fmt.Println("视频输出完成")
+	return outputFile, filename, nil
+}
+
+func processFrames(video *gocv.VideoCapture, classifier *gocv.CascadeClassifier, overlayImg gocv.Mat, frameChan chan<- gocv.Mat) {
 	// 循环读取视频帧并进行处理
 	frame := gocv.NewMat()
 	defer frame.Close()
@@ -239,11 +257,9 @@ func HandleVideo(videoFile, origin string) (string, string, error) {
 			// 释放资源
 			faceRegion.Close()
 		}
-		// 写入带有自定义马赛克的视频帧到输出文件
-		output.Write(frame)
-
+		frameChan <- frame
 	}
-	// 视频输出结束
-	fmt.Println("视频输出完成")
-	return outputFile, filename, nil
+
+	// Close the frameChan channel when processing is complete
+	close(frameChan)
 }
